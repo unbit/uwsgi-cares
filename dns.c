@@ -72,7 +72,14 @@ static char *dns_get_a(char *name, uint16_t name_len, uint16_t *ip_len) {
 	memset(&ucq, 0, sizeof(struct uwsgi_cares_query));
 	ucq.ub = uwsgi_buffer_new(INET_ADDRSTRLEN);
 
-	char *domain_name = uwsgi_concat2n(name, name_len, "", 0);
+	char *domain_name = NULL;
+	char *port = memchr(name, ':', name_len);
+	if (port) {
+		domain_name = uwsgi_concat2n(name, port - name, "", 0);
+	}
+	else {	
+		domain_name = uwsgi_concat2n(name, name_len, "", 0);
+	}
 	ares_query(channel, domain_name, ns_c_in, ns_t_a, dns_a_cb, &ucq);
 	free(domain_name);
 	
@@ -103,12 +110,17 @@ static char *dns_get_a(char *name, uint16_t name_len, uint16_t *ip_len) {
 end:
 
 	if (ucq.cb_done && ucq.ok) {
+		if (port) {
+			if (uwsgi_buffer_append(ucq.ub, port, name_len - (port-name))) goto end2;
+			uwsgi_log("%.*s\n", ucq.ub->pos, ucq.ub->buf);
+		}
 		*ip_len = ucq.ub->pos;
 		result = ucq.ub->buf;
 		// protect the buffer from being destroyed
 		ucq.ub->buf = NULL;
 	}
 	
+end2:
 	uwsgi_buffer_destroy(ucq.ub);
 	return result;
 }
