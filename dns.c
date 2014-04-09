@@ -112,7 +112,6 @@ end:
 	if (ucq.cb_done && ucq.ok) {
 		if (port) {
 			if (uwsgi_buffer_append(ucq.ub, port, name_len - (port-name))) goto end2;
-			uwsgi_log("%.*s\n", ucq.ub->pos, ucq.ub->buf);
 		}
 		*ip_len = ucq.ub->pos;
 		result = ucq.ub->buf;
