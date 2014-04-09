@@ -53,7 +53,7 @@ void dns_a_cb(void *arg, int status, int timeouts, unsigned char *buf, int len) 
 		return;
 	}
 	ucq->ub->pos = strlen(ucq->ub->buf);
-	// TODO cache the result ?
+	// cache the result ?
 	if (ucares.cache) {
 		uwsgi_cache_magic_set(ucq->domain_name, ucq->domain_name_len, ucq->ub->buf, ucq->ub->pos, ttl,
                                 UWSGI_CACHE_FLAG_UPDATE, ucares.cache);
