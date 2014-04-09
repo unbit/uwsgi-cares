@@ -12,15 +12,10 @@ extern struct uwsgi_server uwsgi;
 	--cares-cache-ttl = <cache_name>
 
 	${dns[HTTP_HOST]}
-	${dns[0:HTTP_HOST]}
-	${dns[1:HTTP_HOST]}
-	${dns[r:HTTP_HOST]}
 
-	${dns_txt[r:HTTP_HOST]}
-
-	${dns_ptr[r:REMOTE_ADDR]}
-
-	${dns[a:HTTP_HOST]}
+	TODO
+	${dns_txt[HTTP_HOST]}
+	${dns_ptr[REMOTE_ADDR]}
 */
 
 static struct uwsgi_cares {
@@ -30,9 +25,16 @@ static struct uwsgi_cares {
 	int ttl;
 } ucares;
 
+struct uwsgi_option cares_options[] = {
+	{"cares-cache", required_argument, 0, "cache every c-ares query in the specified uWSGI cache", uwsgi_opt_set_str, &ucares.cache, 0},
+	UWSGI_END_OF_OPTIONS
+};
+
 struct uwsgi_cares_query {
 	int cb_done;
 	int ok;
+	char *domain_name;
+	uint16_t domain_name_len;
 	struct uwsgi_buffer *ub;
 };
 
@@ -52,7 +54,10 @@ void dns_a_cb(void *arg, int status, int timeouts, unsigned char *buf, int len) 
 	}
 	ucq->ub->pos = strlen(ucq->ub->buf);
 	// TODO cache the result ?
-
+	if (ucares.cache) {
+		uwsgi_cache_magic_set(ucq->domain_name, ucq->domain_name_len, ucq->ub->buf, ucq->ub->pos, ttl,
+                                UWSGI_CACHE_FLAG_UPDATE, ucares.cache);
+	}
 	// ok
 	ucq->ok = 1;
 }
@@ -62,26 +67,43 @@ static char *dns_get_a(char *name, uint16_t name_len, uint16_t *ip_len) {
 	ares_channel channel;
 	ares_socket_t socks[ARES_GETSOCK_MAXNUM];
 
+	struct uwsgi_cares_query ucq;
+	memset(&ucq, 0, sizeof(struct uwsgi_cares_query));
+	ucq.ub = uwsgi_buffer_new(INET_ADDRSTRLEN);
+
+	char *port = memchr(name, ':', name_len);
+	if (port) {
+		ucq.domain_name = uwsgi_concat2n(name, port - name, "", 0);
+		ucq.domain_name_len = port-name;
+	}
+	else {	
+		ucq.domain_name = uwsgi_concat2n(name, name_len, "", 0);
+		ucq.domain_name_len = name_len;
+	}
+
+	if (ucares.cache) {
+		uint64_t valsize = 0;
+		char *result = NULL;
+        	char *value = uwsgi_cache_magic_get(ucq.domain_name, ucq.domain_name_len, &valsize, NULL, ucares.cache);
+        	if (value) {
+			free(ucq.domain_name);
+			*ip_len = valsize;
+			if (port) {	
+				result = uwsgi_concat2n(value, valsize, port, name_len - (port-name));
+				free(value);
+				return result;
+			}
+			return value;
+		}
+	}
+
 	int ret = ares_init(&channel);
 	if (ret) {
 		uwsgi_log("[uwsgi-cares] error: %s\n", ares_strerror(ret));
 		return NULL;
 	}
 
-	struct uwsgi_cares_query ucq;
-	memset(&ucq, 0, sizeof(struct uwsgi_cares_query));
-	ucq.ub = uwsgi_buffer_new(INET_ADDRSTRLEN);
-
-	char *domain_name = NULL;
-	char *port = memchr(name, ':', name_len);
-	if (port) {
-		domain_name = uwsgi_concat2n(name, port - name, "", 0);
-	}
-	else {	
-		domain_name = uwsgi_concat2n(name, name_len, "", 0);
-	}
-	ares_query(channel, domain_name, ns_c_in, ns_t_a, dns_a_cb, &ucq);
-	free(domain_name);
+	ares_query(channel, ucq.domain_name, ns_c_in, ns_t_a, dns_a_cb, &ucq);
 	
 	for(;;) {
 		int bitmask = ares_getsock(channel, socks, ARES_GETSOCK_MAXNUM);
@@ -108,7 +130,7 @@ static char *dns_get_a(char *name, uint16_t name_len, uint16_t *ip_len) {
 	}
 
 end:
-
+	free(ucq.domain_name);
 	if (ucq.cb_done && ucq.ok) {
 		if (port) {
 			if (uwsgi_buffer_append(ucq.ub, port, name_len - (port-name))) goto end2;
@@ -149,5 +171,6 @@ static void cares_register() {
 
 struct uwsgi_plugin cares_plugin = {
 	.name = "cares",
+	.options = cares_options,
 	.on_load = cares_register,
 };
