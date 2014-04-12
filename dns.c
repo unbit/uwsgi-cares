@@ -27,6 +27,7 @@ static struct uwsgi_cares {
 
 struct uwsgi_option cares_options[] = {
 	{"cares-cache", required_argument, 0, "cache every c-ares query in the specified uWSGI cache", uwsgi_opt_set_str, &ucares.cache, 0},
+	{"cares-cache-ttl", required_argument, 0, "force the ttl when caching dns query results", uwsgi_opt_set_int, &ucares.ttl, 0},
 	UWSGI_END_OF_OPTIONS
 };
 
@@ -55,6 +56,7 @@ void dns_a_cb(void *arg, int status, int timeouts, unsigned char *buf, int len) 
 	ucq->ub->pos = strlen(ucq->ub->buf);
 	// cache the result ?
 	if (ucares.cache) {
+		if (ucares.ttl) ttl = ucares.ttl;
 		uwsgi_cache_magic_set(ucq->domain_name, ucq->domain_name_len, ucq->ub->buf, ucq->ub->pos, ttl,
                                 UWSGI_CACHE_FLAG_UPDATE, ucares.cache);
 	}
