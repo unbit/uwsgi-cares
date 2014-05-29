@@ -25,9 +25,29 @@ static struct uwsgi_cares {
 	int ttl;
 } ucares;
 
+
+static char *dns_get_a(char *, uint16_t, uint16_t *);
+
+static void uwsgi_opt_dns_resolve(char *opt, char *value, void *foo) {
+	char *equal = strchr(value, '=');
+	if (!equal) {
+		uwsgi_log("invalid cares-resolve syntax, must be placeholder=domain\n");
+		exit(1);
+	}
+	uint16_t ip_len = 0;
+	char *ip = dns_get_a(equal+1, strlen(equal+1), &ip_len);
+	if (!ip) {
+		uwsgi_log("[uwsgi-cares] unable to resolve name %s\n", equal+1);
+		exit(1);
+	}
+	char *new_opt = uwsgi_concat2n(value, (equal-value)+1, ip, ip_len);
+	uwsgi_opt_set_placeholder(opt, new_opt, (void *) 1);
+}
+
 struct uwsgi_option cares_options[] = {
 	{"cares-cache", required_argument, 0, "cache every c-ares query in the specified uWSGI cache", uwsgi_opt_set_str, &ucares.cache, 0},
 	{"cares-cache-ttl", required_argument, 0, "force the ttl when caching dns query results", uwsgi_opt_set_int, &ucares.ttl, 0},
+	{"cares-resolve", required_argument, 0, "place the result of a dns query in the specified placeholder, sytax: placeholder=name (immediate option)", uwsgi_opt_dns_resolve, NULL, UWSGI_OPT_IMMEDIATE},
 	UWSGI_END_OF_OPTIONS
 };
 
